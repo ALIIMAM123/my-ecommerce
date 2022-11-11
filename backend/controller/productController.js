@@ -1,18 +1,188 @@
-const Product = require("../models/productModal")
+const Product = require("../models/productModal");
+const ErrorHandler = require("../utils/errorhandler");
+const catchAsyncErrors = require("../middleware/catchAsyncErrors");
+const ApiFeatures = require("../utils/apifeatures");
+// Create Product --Admin
 
+exports.createProduct = catchAsyncErrors(async (req, res, next) => {
+	req.body.user = req.user.id;
 
-// Create Product
+	const product = await Product.create(req.body);
 
-exports.createProduct =  async(req,res,next) => {
-   const myproduct = await Product.create(req.body);
+	res.status(201).json({
+		success: true,
+		product,
+	});
+});
 
-   res.status(201).json({
-      success : true,
-      myproduct
-   })
-}
+// Get All Product
+exports.getAllProducts = catchAsyncErrors(async (req, res, next) => {
+	// search  product by keyword ,[ filter  and   Pagination]
 
+	const resultPerPage = 8;
+	const productsCount = await Product.countDocuments();
 
-exports.getAllProducts = (req,res) => {
-   res.status(200).json({message : "Route is working fine_mern"})
-}
+	const apiFeature = new ApiFeatures(Product.find(), req.query)
+		.search() // http:localhost:4000/api/v1/products?keyword=samosa  herr  product.find() is query and req.query is keyword i.e samosa
+		.filter()
+		.pagination(resultPerPage);
+	const products = await apiFeature.query;
+	// const products = await Product.find();
+
+	res.status(200).json({
+		success: true,
+		products,
+		productsCount,
+	});
+});
+
+// Get single Product Details
+exports.getProductDetails = catchAsyncErrors(async (req, res, next) => {
+	const product = await Product.findById(req.params.id);
+
+	if (!product) {
+		return next(new ErrorHandler("Product not Found", 404));
+	}
+
+	res.status(200).json({
+		success: true,
+		product,
+	});
+});
+
+// Update Product -- Admin
+exports.updateProduct = catchAsyncErrors(async (req, res, next) => {
+	let product = await Product.findById(req.params.id);
+
+	if (!product) {
+		return next(new ErrorHandler("Product not Found", 404));
+	}
+
+	product = await Product.findByIdAndUpdate(req.params.id, req.body, {
+		new: true,
+		reunValidators: true,
+		useFindAndModify: false,
+	});
+
+	res.status(200).json({
+		success: true,
+		product,
+	});
+});
+
+// Delete Product
+
+exports.deleteProduct = catchAsyncErrors(async (req, res, next) => {
+	const product = await Product.findById(req.params.id);
+
+	// if (!product) {
+	// 	return res.status(500).json({
+	// 		success: false,
+	// 		message: "Product not found",
+	// 	});
+	// }
+
+	if (!product) {
+		return next(new ErrorHandler("Product not Found", 404));
+	}
+
+	await product.remove();
+
+	res.status(200).json({
+		success: true,
+		message: "Product Deleted Successfully",
+	});
+});
+
+// Create New Review or Update the review
+
+exports.createProductReview = catchAsyncErrors(async (req, res, next) => {
+	const { rating, comment, productId } = req.body;
+	const review = {
+		user: req.user._id,
+		name: req.user.name,
+		rating: Number(rating),
+		comment: comment,
+	};
+
+	const product = await Product.findById(productId);
+	const isReviewed = product.reviews.find(
+		(rev) => rev.user.toString() === req.user._id.toString(),
+	);
+
+	if (isReviewed) {
+		product.reviews.forEach((rev) => {
+			if (rev.user.toString() === req.user._id.toString())
+				(rev.rating = rating), (rev.comment = comment);
+		});
+	} else {
+		product.reviews.push(review);
+		product.numOfReviews = product.reviews.length;
+	}
+
+	let avg = 0;
+	product.reviews.forEach((rev) => {
+		avg = avg + rev.rating;
+	});
+
+	product.ratings = avg / product.reviews.length;
+
+	await product.save({ validateBeforeSave: false });
+	res.status(200).json({
+		success: true,
+	});
+});
+
+// Get All Reviews of a Single Product
+
+exports.getProductReviews = catchAsyncErrors(async (req, res, next) => {
+	const product = await Product.findById(req.query.id);
+
+	if (!product) {
+		return next(new ErrorHander("Product not found", 404));
+	}
+
+	res.status(200).json({
+		success: true,
+		reviews: product.reviews,
+	});
+});
+
+// Delete Review
+exports.deleteReview = catchAsyncErrors(async (req, res, next) => {
+	const product = await Product.findById(req.query.productId);
+
+	if (!product) {
+		return next(new ErrorHander("Product not found", 404));
+	}
+
+	const reviews = product.reviews.filter(
+		(rev) => rev._id.toString() !== req.query.id.toString(),
+	);
+
+	let avg = 0;
+	reviews.forEach((rev) => {
+		avg = avg + rev.rating;
+	});
+
+	const ratings = avg / reviews.length;
+
+	const numOfReviews = reviews.length;
+	await Product.findByIdAndUpdate(
+		req.query.productId,
+		{
+			reviews,
+			ratings,
+			numOfReviews,
+		},
+		{
+			new: true,
+			runValidators: true,
+			useFindAndModify: false,
+		},
+	);
+
+	res.status(200).json({
+		success: true,
+	});
+});
